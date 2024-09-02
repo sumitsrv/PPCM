@@ -22,12 +22,40 @@ def _prec_recall_f1_score(pred_items, gold_items):
     f1 = (2 * precision * recall) / (precision + recall)
     return f1
 
+# Lexical alignment decoder and scorer
+def la_scorer(args,turn,classifier,enc,class2idx,knowledge,plot=False,gold=None):
+    for i,t in enumerate(turn['text']):
+        # ind_eos = len(cut_seq_to_eos(t))-1
+        
+        text = enc.decode(cut_seq_to_eos(t))
+        dist = 0
+        hyp = [i,1-dist,text, 0]
+        hypotesis.append(hyp)
+        print(f"Hyp: {hyp}")
+        ## plotting 
+        # if(plot): plots_array.append(loss[i][:ind_eos,-1])
+
+    x = [h[2] for h in hypotesis]
+    if(knowledge):
+        sent_p = [knowledge for i in range(args.num_samples)]
+        x = (sent_p,x)
+
+    for j, (loss,correct,predition) in enumerate(zip(*predict(args,classifier,x,class2idx))):
+        hypotesis[j] = [hypotesis[j][0],loss,hypotesis[j][1],correct,predition,hypotesis[j][3],hypotesis[j][2]]
+
+    hypotesis = sorted(hypotesis, key = lambda x: x[1]) ## sort by loss
+    acc = hypotesis[0][3] ## if it is correctly classifed the sample with the lowest loss
+    hypotesis = [[h[0],truncate(h[1],4),truncate(h[2],4),h[4],h[5],h[6]] for h in hypotesis]
+    return hypotesis, acc, []
+
+
 def scorer(args,turn,classifier,enc,class2idx,knowledge,plot=False,gold=None):
     hypotesis = []
     plots_array = []
     if(plot):
         loss = np.transpose(np.array(turn['loss']), (2, 0, 1)) # batch * sequence_len * iteration
     for i,t in enumerate(turn['text']):
+        # print("t:", t)
         ind_eos = len(cut_seq_to_eos(t))-1
         
         text = enc.decode(cut_seq_to_eos(t))
@@ -37,7 +65,9 @@ def scorer(args,turn,classifier,enc,class2idx,knowledge,plot=False,gold=None):
         if(gold): 
             bleu = truncate(moses_multi_bleu(np.array([text]),np.array([gold]))*100,2)
             f1 = truncate(_prec_recall_f1_score(enc.encode(text), enc.encode(gold))*100,2)
-        hypotesis.append([i,1-dist,text, f"{bleu}/{f1}"])
+        hyp = [i,1-dist,text, f"{bleu}/{f1}"]
+        hypotesis.append(hyp)
+        # print(f"Hyp: {hyp}")
         ## plotting 
         if(plot): plots_array.append(loss[i][:ind_eos,-1])
 

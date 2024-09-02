@@ -24,7 +24,7 @@ def run_model():
     parser.add_argument("--seed", type=int, default=5555)
     parser.add_argument("--temperature", type=float, default=1)
     parser.add_argument('--repetition_penalty', type=float, default=1.1) #1.1
-    parser.add_argument("--top_k", type=int, default=10)
+    parser.add_argument("--top_k", type=int, default=20)
     parser.add_argument("--gm_scale", type=float, default=0.95)
     parser.add_argument("--kl_scale", type=float, default=0.01)
     parser.add_argument('--nocuda', action='store_true', help='no cuda')

@@ -81,6 +81,7 @@ def evaluate(args,model,enc,classifier,entailment,task_ent,class2idx,param_grid,
             num_lines = sum(1 for line in open(name,'r'))
             list_starters = list_starters[num_lines:]
             mode = 'a'
+            
         with jsonlines.open(get_name(args,base_path,class2idx), mode=mode) as writer:
             for id_starter, starter in enumerate(list_starters):
                 conversation = []

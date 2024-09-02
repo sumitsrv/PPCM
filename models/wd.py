@@ -84,6 +84,8 @@ def get_greedy(args=None, true_hidden=None, model=None, output=None, classifier=
         # print(true_past[0].size())
         # true_past = [jj[:, idx, :, :, :] for jj in true_past]
         # print("true bast after reshaping",true_past[0].size())
+        print("Idx shape:", idx.shape, "Ids: ", idx, "Past: ", len(true_past))
+
         logits, _ = model(idx, past=true_past)
         # print("logits for each candidate",logits.size())
         hidden = model.hidden_states
@@ -112,6 +114,7 @@ def get_greedy(args=None, true_hidden=None, model=None, output=None, classifier=
         prev = torch.multinomial(topk_rescaled_probs, num_samples=1) 
   
     return prev
+
 
 
 def weight_decoder(model, enc, args, context=None, sample=True, device='cuda',repetition_penalty=1.0,classifier=None,knowledge=None):

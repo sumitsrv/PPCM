@@ -190,6 +190,7 @@ def cut_seq_to_eos(sentence, remove_id=[-1]):
     return sent
 
 def find_ngrams(input_list, n):
+#   print("ngram_score:", len(set(zip(*[input_list[i:] for i in range(n)]))))
   return len(set(zip(*[input_list[i:] for i in range(n)])))
 
 def dist_score(s,enc):
