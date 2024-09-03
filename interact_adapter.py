@@ -8,6 +8,8 @@ import torch
 from nltk import tokenize
 from models.wd import weight_decoder
 from utils.helper import cut_seq_to_eos
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
 
 #CUDA_VISIBLE_DEVICES=2 python main.py -D sentiment --label_class 3 --length 30 --num_samples 1 --interact --verbose --speaker DGPT --load_check_point_adapter runs/SENT_very_negative_Mar30_13-59-53/pytorch_model.bin
 
@@ -31,6 +33,23 @@ def sample(model, args, context=None, past=None, device='cuda',
     output = torch.tensor(context, device=device, dtype=torch.long) if context else None 
     # Creates tensor of the size of context. The length of Context is just the num_samples passed from the command line. num_samples denote the number of different candidate sentences we would like to generate and rate.
     output_response = output.new_zeros([output.size(0),0])
+    
+    if weighed_tokens is not None:
+        weighed_tokens_tensor = torch.tensor(weighed_tokens)
+        weighed_tokens_T = torch.transpose(weighed_tokens_tensor, 0, 1).to(device) #Assumes no spelling mistake, hence only single element encoded arrays are generated for each token (NLTK tokenizer).
+        #TODO: Handle multi-dimension weighed_tokens for creating tensor. Currently it throws an error.
+        weighed_tokens_T = weighed_tokens_T.repeat(output.shape[0], 1) # One weighed tokens tensor for each sample to track consumed target tokens.
+
+        vocab_size = model.config.vocab_size
+        
+        # Create one hot vector of the shape (num_samples, vocab_size). This vector will contain the weights for each token received from the target user utterance. Using the method "scatter", the weights will be set in the one hot vector. The indices are identified using the indices received from the "encode" method called previously. Later, for each sample, once a token has been used, its weight will be reset by 0 in the one_hot_vector so that it doesn't get bumped up again.
+
+        one_hot_good = torch.zeros(output.shape[0], vocab_size).to(device)
+        weights = torch.full((output.shape[0], weighed_tokens_T.shape[1]), 5, dtype=torch.float32).to(device)
+        one_hot_good.scatter_(1, weighed_tokens_T, weights).to(device)
+        
+        # print("HV Max1:", [one_hot_good[i][val] for i, val in enumerate(torch.argmax(one_hot_good, dim=1))])
+        
     stopped = [0 for _ in range(output.size(0))]
     for i in range(args.length):
 
@@ -52,33 +71,23 @@ def sample(model, args, context=None, past=None, device='cuda',
 
         # print("Logits: ", len(logits))
         
-        logits = top_k_logits(logits, k=args.top_k)  # + SmallConst
         
+        # print("Max1: ", [logits[i][val] for i, val in enumerate(torch.argmax(logits, dim=1))])
         # Modify log_probs to enhance the weight of the tokens received from the user.
-
-        if weighed_tokens:
-            weighed_tokens_tensor = torch.zeros(logits.size(dim=1))
-            print("WTT: ", weighed_tokens_tensor.shape)
-            [_ , vocab_size] = logits.shape
-            one_hot_vectors = []
-            # for good_list in weighed_tokens:
-                # good_list = list(filter(lambda x: len(x) <= 1, good_list))
-            # weighed_tokens_tensor = torch.tensor(weighed_tokens_tensor)
-            # num_good = weighed_tokens_tensor.shape[0]
-            one_hot_good = torch.zeros(1, vocab_size)
-            print("OHG: ", one_hot_good.shape)
-            weighed_tokens = torch.transpose(torch.tensor(weighed_tokens), 0, 1)
-            print("WTS: ", weighed_tokens)
+        # logits = top_k_logits(logits, k=args.top_k)  # + SmallConst
+        
+        # log_probs = F.softmax(logits, dim=-1)
+        if weighed_tokens is not None:            
+            # print("HV Max2:", [one_hot_good[i][val] for i, val in enumerate(torch.argmax(one_hot_good, dim=1))])
             
-            one_hot_good.scatter_(1, weighed_tokens, one_hot_good)
-            # one_hot_good = torch.sum(one_hot_good, dim=0)
-            # one_hot_vectors.append(one_hot_good)
+            logits = torch.add(logits, one_hot_good)
+            # print("HV Shape:", one_hot_good.shape, "Weights shape:", weights.shape, "Weighed tokens shape:", weighed_tokens_T.shape)
+            # print("Max2: ", [logits[i][val] for i, val in enumerate(torch.argmax(logits, dim=1))], "HV Shape:", one_hot_good.shape)
 
             # log_probs = log_probs + args.bow_scale_weight*one_hot_vectors[-1]*log_probs #+ args.bow_scale_weight*one_hot_vectors[-1]
             
-            # for token in weighed_tokens:
-            #     logits[token] *= 10
-
+        logits = top_k_logits(logits, k=args.top_k)  # + SmallConst
+        
         log_probs = F.softmax(logits, dim=-1)
 
         if sample:
@@ -86,6 +95,12 @@ def sample(model, args, context=None, past=None, device='cuda',
         else:
             _, prev = torch.topk(log_probs, k=1, dim=-1)
 
+        # print("WTs:", weighed_tokens,"Prev:", prev)
+
+        # Reset the weights of the used tokens from the target utterance in the one_hot_vector to zero. This will ensure that the used tokens will not be bumped up again for that particular sample.
+        weights_to_be_reset = torch.zeros((prev.shape), dtype=logits.dtype).to(device)
+        one_hot_good.scatter_(1, prev, weights_to_be_reset).to(device)
+        
         # print("Logits: ", logits.shape, "Log probs: ", log_probs.shape, "Prev: ", prev.shape)
         output = prev if output is None else torch.cat((output, prev), dim=1)  # update output
 
@@ -154,14 +169,15 @@ def interact(args,model,enc,classifier,class2idx,device):
             print('Prompt should not be empty!')
             raw_text = input("USR >>>")
         
-        if len(history) == 0:
-            idx_target_utterance_for_alignment = 0
-        else:
-            idx_target_utterance_for_alignment = input(f"TRGT >>>> Between 0 and {len(history)}")
+        idx_target_utterance_for_alignment = len(history)
+        # if len(history) == 0:
+        #     idx_target_utterance_for_alignment = 0
+        # else:
+        #     idx_target_utterance_for_alignment = input(f"TRGT >>>> Between 0 and {len(history)}")
 
-            while not idx_target_utterance_for_alignment or idx_target_utterance_for_alignment not in range(len(history)):
-                print(f'Target utterance should be between 0 and {len(history)}!')
-                idx_target_utterance_for_alignment = input(f"TRGT >>>> Between 0 and {len(history)}")
+        #     while not idx_target_utterance_for_alignment or idx_target_utterance_for_alignment not in range(len(history)):
+        #         print(f'Target utterance should be between 0 and {len(history)}!')
+        #         idx_target_utterance_for_alignment = input(f"TRGT >>>> Between 0 and {len(history)}")
     
 
         classifier,class2idx = classifiers["b"]
@@ -221,7 +237,12 @@ def interact(args,model,enc,classifier,class2idx,device):
         history.append(raw_text)
         target_utterance_for_alignment = history[idx_target_utterance_for_alignment]
 
-        alignment_tokens_idx = [enc.encode(tu) for tu in target_utterance_for_alignment]
+        stop_words = set(stopwords.words('english'))
+        
+        word_tokens = word_tokenize(target_utterance_for_alignment)
+        filtered_utterance = [w for w in word_tokens if not w.lower() in stop_words]
+       
+        alignment_tokens_idx = [enc.encode(" " + word) for word in filtered_utterance]
 
         context_tokens = sum([enc.encode(h) + [EOS_ID] for h in history],[]) 
         context_tokens = [context_tokens for _ in range(args.num_samples)]

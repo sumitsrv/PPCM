@@ -29,7 +29,7 @@ def run_model():
     parser.add_argument("--kl_scale", type=float, default=0.01)
     parser.add_argument('--nocuda', action='store_true', help='no cuda')
     parser.add_argument('--grad_length', type=int, default=10000)
-    parser.add_argument('--num_samples', type=int, default=1,
+    parser.add_argument('--num_samples', type=int, default=3,
                         help='Number of samples to generate from the modified latents')
     parser.add_argument('--horizon_length', type=int, default=1, help='Length of future to optimize over')
     # parser.add_argument('--force-token', action='store_true', help='no cuda')
